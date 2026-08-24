@@ -34,6 +34,8 @@ from winrt.windows.storage.streams import DataReader, Buffer, InputStreamOptions
 
 from AlbumCover import AlbumCover
 from GradientBlur import GradientBlur
+from AudioPulseMonitor import AudioPulseMonitor
+from ShadowLabel import ShadowLabel
 
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -89,8 +91,10 @@ class MusicScreensaver(App):
         self.artist = ""
         self.elapsed_time = 0
         self._last_thumb_path = None
+        self._target_pulse = 1.0
+        self._pulse_velocity = 0.0
 
-        self.gradient_blur = GradientBlur(start_size=1024, steps=8)
+        self.gradient_blur = GradientBlur(start_size=2048, steps=8)
 
         #background with blur effect
         root = FloatLayout()
@@ -108,38 +112,53 @@ class MusicScreensaver(App):
         root.bind(size=self.UpdateBackgroundGeometry, pos=self.UpdateBackgroundGeometry)
 
         #layout
-        layout = AnchorLayout(anchor_x='center', anchor_y='center')
-        verticalBox = BoxLayout(orientation="vertical", size_hint=(0.8, 1.0))
+        verticalBox = BoxLayout(orientation="vertical", size_hint=(1.0, 1.0))
         
         #album cover
         coverAnchor = AnchorLayout(anchor_x='center', anchor_y='center')
         
-        self.albumCover = AlbumCover(source=resource_path("no_cover.jpg"), radius_ratio=0.1, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
-        with self.albumCover.canvas.after:
-            Color(1,1,1,1)
+        self.albumCover = AlbumCover(source=resource_path("no_cover.jpg"), radius_ratio=0.07, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
+        self.audioMonitor = AudioPulseMonitor(callback=self.OnAudioPulse, bass_cutoff_hz=200)
+        self.audioMonitor.start()
 
         coverAnchor.add_widget(self.albumCover)
         verticalBox.add_widget(coverAnchor)
 
         #label with title And artist
-        self.titleArtistLabel = Label(text=self.title, color=(1,1,1,1), bold=True, font_size=sp(65), size_hint=(1.0, 0.1))
-        verticalBox.add_widget(self.titleArtistLabel)
+        titleArtistAnchor = AnchorLayout(anchor_x='center', anchor_y='center', size_hint=(1.0, 0.06))
 
-        layout.add_widget(verticalBox)
+        self.titleArtistLabel = ShadowLabel(text=self.title, color=(1,1,1,1), bold=True, font_size=sp(65), size_hint=(None, None))
+
+        titleArtistAnchor.add_widget(self.titleArtistLabel)
+        verticalBox.add_widget(titleArtistAnchor)
 
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self.StartMetadataUpdateLoop, daemon=True).start()
         Clock.schedule_interval(self.TriggerMetadataUpdate, 1.0)
         Clock.schedule_interval(self.Animate, 1/60)
 
-        root.add_widget(layout)
+        root.add_widget(verticalBox)
         return root
 
     def Animate(self, dt):
+        #gradient animation
         self.elapsed_time += dt/40
         value = math.sin(self.elapsed_time)*360
         self.bg_rotation.angle = value
-        print(value)
+
+        #audio pulse smoothing
+        stiffness = 90.0
+        damping = 19.0
+
+        dt = min(dt, 1/30)
+
+        current = self.albumCover.pulse_scale
+        force = (self._target_pulse - current) * stiffness
+        self._pulse_velocity += force * dt
+        self._pulse_velocity *= max(1.0 - damping * dt, 0.0)
+
+        self.albumCover.pulse_scale = current + self._pulse_velocity * dt
+        
 
     def ScaleBackground(self, zoom=1.2):
         texture = self.bg_rect.texture
@@ -230,6 +249,14 @@ class MusicScreensaver(App):
 
     def StopMetadataUpdate(self):
         self._loop.call_soon_threadsafe(self._loop.stop)
+
+    @mainthread
+    def OnAudioPulse(self, pulse_value):
+        self.albumCover.pulse_scale = pulse_value
+
+    def on_stop(self):
+        self.audioMonitor.stop()
+        self.StopMetadataUpdate()
 
 if __name__ == "__main__":
     if OPERATING_SYSTEM == "Windows":
