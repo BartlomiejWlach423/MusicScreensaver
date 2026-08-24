@@ -3,34 +3,9 @@ import os
 
 OPERATING_SYSTEM = platform.system()
 
-from screeninfo import get_monitors
+from MonitorAndScreenManager import DetectAndSetupMonitor
 
-monitors = []
-
-for monitor in get_monitors():
-    monitors.append(monitor)
-
-monitors_len = len(monitors)
-
-max_width_res = 500
-height_res = 500
-
-if monitors_len>1:
-    max_width_res = monitors[0].width
-    height_res = monitors[0].height
-    for monitor in monitors:
-        if monitor.width > max_width_res:
-            max_width_res = monitor.width
-            height_res = monitor.height
-
-print(f"Screen resolution: {max_width_res}, {height_res}")
-
-from kivy.config import Config
-Config.set('graphics', 'width', max_width_res)
-Config.set('graphics', 'height', height_res)
-Config.set('graphics', 'maxfps', '60')
-#Config.set('graphics', 'fullscreen', 'auto')
-#Config.getint('kivy', 'show_fps')
+DetectAndSetupMonitor()
 
 from kivy.core.window import Window
 Window.clearcolor = (0,0,0,1)
@@ -47,9 +22,8 @@ from kivy.core.image import Image as CoreImage
 from kivy.uix.label import Label
 from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate
 from kivy.metrics import sp, dp
-from kivy.uix.widget import Widget
-from kivy.graphics.texture import Texture
 
+import sys
 import math
 import asyncio
 import threading
@@ -58,7 +32,21 @@ import winrt.windows.foundation
 from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
 from winrt.windows.storage.streams import DataReader, Buffer, InputStreamOptions
 
-async def saveThumbnail(thumb_ref, output_path):
+from AlbumCover import AlbumCover
+from GradientBlur import GradientBlur
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
+import itertools
+
+_thumb_counter = itertools.count()
+
+async def SaveThumbnail(thumb_ref, output_dir):
     if thumb_ref is None:
         return None
 
@@ -74,120 +62,37 @@ async def saveThumbnail(thumb_ref, output_path):
     buffer = bytearray(size)
     reader.read_bytes(buffer)
 
+    output_path = os.path.join(output_dir, f"cover_{next(_thumb_counter)}.jpg")
     with open(output_path, "wb") as f:
         f.write(buffer)
 
     return output_path
 
-async def getMediaProperties():
+async def GetMediaProperties():
     sessions = await MediaManager.request_async()
     current_session = sessions.get_current_session()
     if current_session:
         properties = await current_session.try_get_media_properties_async()
 
-        cover_path = os.path.join(tempfile.gettempdir(), "current_cover.jpg")
-        saved_path = await saveThumbnail(properties.thumbnail, cover_path)
+        saved_path = await SaveThumbnail(properties.thumbnail, tempfile.gettempdir())
 
         return saved_path, properties.title, properties.artist
     else:
         print("No session")
-        return None, "Empty", "Empty"
+        return None, "Empty", ""
 
-from kivy.graphics.fbo import Fbo
-BLUR_H_SHADER = '''
-$HEADER$
-uniform vec2 resolution;
-uniform float blur_size;
-
-void main(void) {
-    vec4 sum = vec4(0.0);
-    float dt = blur_size / resolution.x;
-
-    sum += texture2D(texture0, vec2(tex_coord0.x - 6.0*dt, tex_coord0.y)) * 0.002216;
-    sum += texture2D(texture0, vec2(tex_coord0.x - 5.0*dt, tex_coord0.y)) * 0.008764;
-    sum += texture2D(texture0, vec2(tex_coord0.x - 4.0*dt, tex_coord0.y)) * 0.026995;
-    sum += texture2D(texture0, vec2(tex_coord0.x - 3.0*dt, tex_coord0.y)) * 0.064759;
-    sum += texture2D(texture0, vec2(tex_coord0.x - 2.0*dt, tex_coord0.y)) * 0.120985;
-    sum += texture2D(texture0, vec2(tex_coord0.x - dt,     tex_coord0.y)) * 0.176033;
-    sum += texture2D(texture0, vec2(tex_coord0.x,          tex_coord0.y)) * 0.199471;
-    sum += texture2D(texture0, vec2(tex_coord0.x + dt,     tex_coord0.y)) * 0.176033;
-    sum += texture2D(texture0, vec2(tex_coord0.x + 2.0*dt, tex_coord0.y)) * 0.120985;
-    sum += texture2D(texture0, vec2(tex_coord0.x + 3.0*dt, tex_coord0.y)) * 0.064759;
-    sum += texture2D(texture0, vec2(tex_coord0.x + 4.0*dt, tex_coord0.y)) * 0.026995;
-    sum += texture2D(texture0, vec2(tex_coord0.x + 5.0*dt, tex_coord0.y)) * 0.008764;
-    sum += texture2D(texture0, vec2(tex_coord0.x + 6.0*dt, tex_coord0.y)) * 0.002216;
-
-    gl_FragColor = sum;
-}
-'''
-
-BLUR_V_SHADER = '''
-$HEADER$
-uniform vec2 resolution;
-uniform float blur_size;
-
-void main(void) {
-    vec4 sum = vec4(0.0);
-    float dt = blur_size / resolution.y;
-
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - 6.0*dt)) * 0.002216;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - 5.0*dt)) * 0.008764;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - 4.0*dt)) * 0.026995;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - 3.0*dt)) * 0.064759;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - 2.0*dt)) * 0.120985;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y - dt))     * 0.176033;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y))          * 0.199471;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + dt))     * 0.176033;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + 2.0*dt)) * 0.120985;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + 3.0*dt)) * 0.064759;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + 4.0*dt)) * 0.026995;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + 5.0*dt)) * 0.008764;
-    sum += texture2D(texture0, vec2(tex_coord0.x, tex_coord0.y + 6.0*dt)) * 0.002216;
-
-    gl_FragColor = sum;
-}
-'''
-
-
-class GradientBlur:
-    def __init__(self, start_size=1024, steps=6):
-        self.fbos = []
-        size = start_size
-        for i in range(steps):
-            size = max(size // 2, 4)
-            fbo = Fbo(size=(size, size))
-            fbo.texture.mag_filter = 'linear'
-            fbo.texture.min_filter = 'linear'
-            self.fbos.append(fbo)
-
-    def process(self, source_texture):
-        current_texture = source_texture
-        current_texture.mag_filter = 'linear'
-        current_texture.min_filter = 'linear'
-
-        for fbo in self.fbos:
-            fbo.clear_buffer()
-            with fbo:
-                Color(1,1,1,1)
-                Rectangle(texture=source_texture, size=fbo.size)
-            fbo.draw()
-            current_texture = fbo.texture
-
-        return current_texture
     
-class AlbumCover(BoxLayout):
-    pass
-
 class MusicScreensaver(App):
     def build(self):
         self.cover = None
         self.title = ""
         self.artist = ""
         self.elapsed_time = 0
+        self._last_thumb_path = None
 
         self.gradient_blur = GradientBlur(start_size=1024, steps=8)
 
-        #background
+        #background with blur effect
         root = FloatLayout()
 
         with root.canvas.before:
@@ -195,20 +100,24 @@ class MusicScreensaver(App):
             PushMatrix()
             self.bg_rotation = Rotate(angle=0, origin=root.center)
             self.bg_rect = Rectangle(
-                texture=CoreImage("no_cover.jpg").texture,
+                texture=CoreImage(resource_path("no_cover.jpg")).texture,
                 size=root.size,
                 pos=root.pos
             )
             PopMatrix()
         root.bind(size=self.UpdateBackgroundGeometry, pos=self.UpdateBackgroundGeometry)
 
+        #layout
         layout = AnchorLayout(anchor_x='center', anchor_y='center')
-        
         verticalBox = BoxLayout(orientation="vertical", size_hint=(0.8, 1.0))
         
         #album cover
-        coverAnchor = AnchorLayout(anchor_x='center', anchor_y='center', padding=(dp(40)))
-        self.albumCover = Image(keep_ratio=True, allow_stretch=True)
+        coverAnchor = AnchorLayout(anchor_x='center', anchor_y='center')
+        
+        self.albumCover = AlbumCover(source=resource_path("no_cover.jpg"), radius_ratio=0.1, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
+        with self.albumCover.canvas.after:
+            Color(1,1,1,1)
+
         coverAnchor.add_widget(self.albumCover)
         verticalBox.add_widget(coverAnchor)
 
@@ -277,10 +186,23 @@ class MusicScreensaver(App):
         asyncio.run_coroutine_threadsafe(self.UpdateMetadata(), self._loop)
 
     async def UpdateMetadata(self):
-        thumbnail_path, title, raw_artist = await getMediaProperties()
+        thumbnail_path, title, raw_artist = await GetMediaProperties()
         artist, _, _ = raw_artist.partition(' — ')
+
+        if thumbnail_path == self._last_thumb_path and title == self.title:
+            if thumbnail_path and thumbnail_path != self._last_thumb_path:
+                self.CleanupOldThumb(thumbnail_path)
+
         self.ApplyMetadata(thumbnail_path, title, artist)
-        print(f"[GetMediaProperties]: {thumbnail_path}, {title}, {artist}")
+
+    def CleanupOldThumb(self, keep_path):
+        old_path = self._last_thumb_path
+        self._last_thumb_path = keep_path
+        if old_path and old_path != keep_path and os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
 
     @mainthread
     def ApplyMetadata(self, thumb_path, title, artist):
@@ -288,14 +210,23 @@ class MusicScreensaver(App):
         self.artist = artist
         self.titleArtistLabel.text = f"{title} — {artist}" if artist and title else title
 
-        if thumb_path:
-            self.albumCover.source = thumb_path
-            self.albumCover.reload()
+        try:
+            if thumb_path:
+                self.albumCover.source = thumb_path
+                self.albumCover.reload()
 
-            self.UpdateBackgroundImage(thumb_path)
-        else:
-            self.albumCover.source = "no_cover.jpg"
-            self.UpdateBackgroundImage("no_cover.jpg")
+                self.UpdateBackgroundImage(thumb_path)
+            else:
+                self.albumCover.source = resource_path("no_cover.jpg")
+                self.UpdateBackgroundImage(resource_path("no_cover.jpg"))
+        except Exception as e:
+            import traceback
+            print(f"Album cover loading error: {e}")
+            traceback.print_exc()
+            self.albumCover.source = resource_path("no_cover.jpg")
+            self.UpdateBackgroundImage(resource_path("no_cover.jpg"))
+
+        self.CleanupOldThumb(thumb_path)
 
     def StopMetadataUpdate(self):
         self._loop.call_soon_threadsafe(self._loop.stop)
