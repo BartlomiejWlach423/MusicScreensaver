@@ -17,115 +17,50 @@ from kivy.app import App
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.image import Image
-from kivy.core.image import Image as CoreImage
-from kivy.uix.label import Label
-from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate
-from kivy.metrics import sp, dp
+from kivy.metrics import sp
 
-import sys
-import math
 import asyncio
 import threading
-import tempfile
-import winrt.windows.foundation
-from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
-from winrt.windows.storage.streams import DataReader, Buffer, InputStreamOptions
 
 from AlbumCover import AlbumCover
-from GradientBlur import GradientBlur
 from AudioPulseMonitor import AudioPulseMonitor
 from ShadowLabel import ShadowLabel
-
-def resource_path(relative_path):
-    if hasattr(sys, '_MEIPASS'):
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
-
-import itertools
-
-_thumb_counter = itertools.count()
-
-async def SaveThumbnail(thumb_ref, output_dir):
-    if thumb_ref is None:
-        return None
-
-    stream = await thumb_ref.open_read_async()
-    size = stream.size
-
-    if not size:
-        return None
-
-    reader = DataReader(stream)
-    await reader.load_async(size)
-
-    buffer = bytearray(size)
-    reader.read_bytes(buffer)
-
-    output_path = os.path.join(output_dir, f"cover_{next(_thumb_counter)}.jpg")
-    with open(output_path, "wb") as f:
-        f.write(buffer)
-
-    return output_path
-
-async def GetMediaProperties():
-    sessions = await MediaManager.request_async()
-    current_session = sessions.get_current_session()
-    if current_session:
-        properties = await current_session.try_get_media_properties_async()
-
-        saved_path = await SaveThumbnail(properties.thumbnail, tempfile.gettempdir())
-
-        return saved_path, properties.title, properties.artist
-    else:
-        print("No session")
-        return None, "Empty", ""
-
-    
+from SpringStep import SpringStep
+from Utils import ResourcePath
+from MediaSession import GetMediaProperties
+from BlurredBackground import BlurredBackground
+ 
 class MusicScreensaver(App):
     def build(self):
         self.cover = None
         self.title = ""
         self.artist = ""
-        self.elapsed_time = 0
         self._last_thumb_path = None
         self._target_pulse = 1.0
         self._pulse_velocity = 0.0
 
-        self.gradient_blur = GradientBlur(start_size=2048, steps=8)
-
         #background with blur effect
         root = FloatLayout()
 
-        with root.canvas.before:
-            Color(1,1,1,0.7)
-            PushMatrix()
-            self.bg_rotation = Rotate(angle=0, origin=root.center)
-            self.bg_rect = Rectangle(
-                texture=CoreImage(resource_path("no_cover.jpg")).texture,
-                size=root.size,
-                pos=root.pos
-            )
-            PopMatrix()
-        root.bind(size=self.UpdateBackgroundGeometry, pos=self.UpdateBackgroundGeometry)
-
+        self.blurred_background = BlurredBackground()
+        root.add_widget(self.blurred_background)
+        self.blurred_background.UpdateBackgroundImage(ResourcePath("no_cover.jpg"))
+        
         #layout
         verticalBox = BoxLayout(orientation="vertical", size_hint=(1.0, 1.0))
         
         #album cover
         coverAnchor = AnchorLayout(anchor_x='center', anchor_y='center')
         
-        self.albumCover = AlbumCover(source=resource_path("no_cover.jpg"), radius_ratio=0.07, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
-        self.audioMonitor = AudioPulseMonitor(callback=self.OnAudioPulse, bass_cutoff_hz=200)
+        self.albumCover = AlbumCover(source=ResourcePath("no_cover.jpg"), radius_ratio=0.07, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
+        self.audioMonitor = AudioPulseMonitor(callback=self.OnAudioPulse, bass_cutoff_hz=150)
         self.audioMonitor.start()
 
         coverAnchor.add_widget(self.albumCover)
         verticalBox.add_widget(coverAnchor)
 
         #label with title And artist
-        titleArtistAnchor = AnchorLayout(anchor_x='center', anchor_y='center', size_hint=(1.0, 0.06))
+        titleArtistAnchor = AnchorLayout(anchor_x='center', anchor_y='center', size_hint=(1.0, 0.08))
 
         self.titleArtistLabel = ShadowLabel(text=self.title, color=(1,1,1,1), bold=True, font_size=sp(65), size_hint=(None, None))
 
@@ -141,62 +76,22 @@ class MusicScreensaver(App):
         return root
 
     def Animate(self, dt):
-        #gradient animation
-        self.elapsed_time += dt/40
-        value = math.sin(self.elapsed_time)*360
-        self.bg_rotation.angle = value
-
-        #audio pulse smoothing
-        stiffness = 90.0
-        damping = 19.0
-
         dt = min(dt, 1/30)
+        stiffness = 25.0
+        damping = 10.0
 
-        current = self.albumCover.pulse_scale
-        force = (self._target_pulse - current) * stiffness
-        self._pulse_velocity += force * dt
-        self._pulse_velocity *= max(1.0 - damping * dt, 0.0)
-
-        self.albumCover.pulse_scale = current + self._pulse_velocity * dt
-        
-
-    def ScaleBackground(self, zoom=1.2):
-        texture = self.bg_rect.texture
-        if texture is None:
-            return
-
-        tex_ratio = texture.width / texture.height
-        target_w, target_h = self.root_size
-        target_ratio = target_w / target_h
-
-        if tex_ratio > target_ratio:
-            new_h = target_h
-            new_w = target_h * tex_ratio
-        else:
-            new_w = target_w
-            new_h = target_w / tex_ratio
-
-        new_w *= zoom
-        new_h *= zoom
-
-        self.bg_rect.size = (new_w, new_h)
-        self.bg_rect.pos = (
-            (target_w - new_w) / 2,
-            (target_h - new_h) / 2,
+        self.albumCover.pulse_scale, self._pulse_velocity = SpringStep(
+            self.albumCover.pulse_scale,
+            self._pulse_velocity,
+            self._target_pulse,
+            stiffness,
+            damping,
+            dt,
         )
 
-    def UpdateBackgroundGeometry(self, instance, value):
-        self.root_size = instance.size
-        self.bg_rotation.origin = instance.center
-        self.ScaleBackground(zoom=1.2)
+        self.blurred_background.Animate(dt, self.albumCover.pulse_scale)
 
-    def UpdateBackgroundImage(self, img_path):
-        raw_texture = CoreImage(img_path, nocache=True).texture
-        blurred_texture = self.gradient_blur.process(raw_texture)
-
-        self.bg_rect.texture = blurred_texture
-        self.ScaleBackground(zoom=1.2)
-
+    
     def StartMetadataUpdateLoop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
@@ -234,16 +129,16 @@ class MusicScreensaver(App):
                 self.albumCover.source = thumb_path
                 self.albumCover.reload()
 
-                self.UpdateBackgroundImage(thumb_path)
+                self.blurred_background.UpdateBackgroundImage(thumb_path)
             else:
-                self.albumCover.source = resource_path("no_cover.jpg")
-                self.UpdateBackgroundImage(resource_path("no_cover.jpg"))
+                self.albumCover.source = ResourcePath("no_cover.jpg")
+                self.blurred_background.UpdateBackgroundImage(ResourcePath("no_cover.jpg"))
         except Exception as e:
             import traceback
             print(f"Album cover loading error: {e}")
             traceback.print_exc()
-            self.albumCover.source = resource_path("no_cover.jpg")
-            self.UpdateBackgroundImage(resource_path("no_cover.jpg"))
+            self.albumCover.source = ResourcePath("no_cover.jpg")
+            self.blurred_background.UpdateBackgroundImage(ResourcePath("no_cover.jpg"))
 
         self.CleanupOldThumb(thumb_path)
 
@@ -252,7 +147,8 @@ class MusicScreensaver(App):
 
     @mainthread
     def OnAudioPulse(self, pulse_value):
-        self.albumCover.pulse_scale = pulse_value
+        self._target_pulse = pulse_value
+        print(f"Pulse = {pulse_value:.4f}")
 
     def on_stop(self):
         self.audioMonitor.stop()

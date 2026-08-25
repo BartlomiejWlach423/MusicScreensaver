@@ -9,6 +9,13 @@ class AlbumCover(Widget):
     allow_stretch = BooleanProperty(True)
     keep_ratio = BooleanProperty(False)
     pulse_scale = NumericProperty(1.0)
+    pulse_range = NumericProperty(0.08)
+    base_blur_radius = NumericProperty(220)
+    base_spread = NumericProperty(-8)
+    base_alpha = NumericProperty(0.75)
+    pulse_blur_boost = NumericProperty(220)
+    pulse_spread_boost = NumericProperty(40)
+    pulse_alpha_boost = NumericProperty(0.25)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -23,14 +30,14 @@ class AlbumCover(Widget):
         self.add_widget(self.image)
 
         with self.canvas.before:
-            self.shadow_color = Color(0, 0, 0, 0.5)
+            self.shadow_color = Color(0, 0, 0, self.base_alpha)
             self.shadow = BoxShadow(
                 pos=self.pos,
                 size=self.size,
                 offset=(0, -10),
-                spread_radius=(-5, -5),
+                spread_radius=(self.base_spread, self.base_spread),
                 border_radius=(20, 20, 20, 20),
-                blur_radius=100,
+                blur_radius=self.base_blur_radius,
             )
             PushMatrix()
             self.scale_instr = Scale(1.0, 1.0, 1.0)
@@ -63,6 +70,7 @@ class AlbumCover(Widget):
         )
 
         self.UpdateCanvas()
+        self.UpdatePulse()
         self.bind(parent=self.BindToParent)
 
     def BindToParent(self, _, parent):
@@ -70,7 +78,7 @@ class AlbumCover(Widget):
             parent.bind(size=self.FitSquareToParent)
             self.FitSquareToParent(parent, parent.size)
 
-    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.95):
+    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.85):
         side = min(parent_size) * margin_ratio
         self.size = (side, side)
 
@@ -106,10 +114,11 @@ class AlbumCover(Widget):
         self.image.keep_ratio = value
 
     def UpdatePulse(self, *_):
-        self.scale_instr.x = self.pulse_scale
-        self.scale_instr.y = self.pulse_scale
-        self.scale_instr.origin = self.center
+        raw_excess = max(self.pulse_scale - 1.0, 0.0)
+        intensity = min(raw_excess / self.pulse_range, 1.0) if self.pulse_range > 0 else 0.0
 
-        intensity = min((self.pulse_scale - 1.0) * 5, 0.7)
-        self.shadow_color = (0, 0, 0, 0.3 + intensity)
-        self.shadow.blur_radius = 100 + (self.pulse_scale - 1.0) * 400
+        spread = self.base_spread - intensity * self.pulse_spread_boost
+
+        self.shadow.spread_radius = (spread, spread)
+        self.shadow_color.a = min(self.base_alpha + intensity * self.pulse_alpha_boost, 1.0)
+        self.shadow.blur_radius = self.base_blur_radius + intensity * self.pulse_blur_boost
