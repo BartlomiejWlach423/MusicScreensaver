@@ -78,7 +78,7 @@ class AlbumCover(Widget):
             parent.bind(size=self.FitSquareToParent)
             self.FitSquareToParent(parent, parent.size)
 
-    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.85):
+    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.90):
         side = min(parent_size) * margin_ratio
         self.size = (side, side)
 

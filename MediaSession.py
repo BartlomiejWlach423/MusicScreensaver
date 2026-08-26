@@ -23,21 +23,61 @@ async def SaveThumbnail(thumb_ref, output_dir):
     buffer = bytearray(size)
     reader.read_bytes(buffer)
 
-    output_path = os.path.join(output_dir, f"cover_{next(_thumb_counter)}.jpg")
-    with open(output_path, "wb") as f:
+    outputPath = os.path.join(output_dir, f"cover_{next(_thumb_counter)}.jpg")
+    with open(outputPath, "wb") as f:
         f.write(buffer)
 
-    return output_path
+    return outputPath
 
 async def GetMediaProperties():
     sessions = await MediaManager.request_async()
-    current_session = sessions.get_current_session()
-    if current_session:
-        properties = await current_session.try_get_media_properties_async()
+    currentSession = sessions.get_current_session()
+    if currentSession:
+        properties = await currentSession.try_get_media_properties_async()
 
-        saved_path = await SaveThumbnail(properties.thumbnail, tempfile.gettempdir())
+        savedPath = await SaveThumbnail(properties.thumbnail, tempfile.gettempdir())
 
-        return saved_path, properties.title, properties.artist
+        return savedPath, properties.title, properties.artist
     else:
         print("No session")
         return None, "Empty", ""
+
+async def SkipNext():
+    sessions = await MediaManager.request_async()
+    currentSession = sessions.get_current_session()
+    if currentSession:
+        return await currentSession.try_skip_next_async()
+    return False
+
+async def SkipPrevious():
+    sessions = await MediaManager.request_async()
+    currentSession = sessions.get_current_session()
+    if currentSession:
+        return await currentSession.try_skip_previous_async()
+    return False
+
+async def Pause():
+    sessions = await MediaManager.request_async()
+    currentSession = sessions.get_current_session()
+    currentSession.try_g
+    if currentSession:
+        return await currentSession.try_toggle_play_pause_async()
+    return False
+
+from pycaw.pycaw import AudioUtilities
+
+volumeInterface = None
+
+def GetVolumeInterface():
+    global volumeInterface
+    if volumeInterface is None:
+        devices = AudioUtilities.GetSpeakers()
+        volumeInterface = devices.EndpointVolume
+    return volumeInterface
+
+def SetVolume(step=0.05):
+    volume = GetVolumeInterface()
+    currentVol = volume.GetMasterVolumeLevelScalar()
+    newVol = max(0.0, min(1.0, currentVol + step))
+    volume.SetMasterVolumeLevelScalar(newVol, None)
+    return newVol

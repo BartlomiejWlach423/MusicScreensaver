@@ -13,5 +13,5 @@ def DetectAndSetupMonitor():
     Config.set('graphics', 'width', width_res)
     Config.set('graphics', 'height', height_res)
     Config.set('graphics', 'maxfps', fps)
-    #Config.set('graphics', 'fullscreen', 'auto')
+    Config.set('graphics', 'fullscreen', 'auto')
     print(f"Screen resolution: {width_res}, {height_res}")
