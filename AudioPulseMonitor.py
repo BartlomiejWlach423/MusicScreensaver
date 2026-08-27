@@ -17,12 +17,12 @@ class AudioPulseMonitor:
 
     def start(self):
         self.running = True
-        threading.Thread(target=self._run, daemon=True).start()
+        threading.Thread(target=self.Run, daemon=True).start()
 
-    def stop(self):
+    def Stop(self):
         self.running = False
 
-    def _get_loopback_device(self, p):
+    def GetLoopbackDevice(self, p):
         try:
             return p.get_default_wasapi_loopback()
         except Exception:
@@ -30,10 +30,11 @@ class AudioPulseMonitor:
                 return loopback
         return None
 
-    def _run(self):
+    def Run(self):
         p = pyaudio.PyAudio()
         try:
-            device = self._get_loopback_device(p)
+            stream = None
+            device = self.GetLoopbackDevice(p)
             if device is None:
                 print("[AudioPulseMonitor] no loopback")
                 return

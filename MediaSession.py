@@ -29,9 +29,12 @@ async def SaveThumbnail(thumb_ref, output_dir):
 
     return outputPath
 
-async def GetMediaProperties():
+async def GetCurrentSession():
     sessions = await MediaManager.request_async()
-    currentSession = sessions.get_current_session()
+    return sessions.get_current_session()
+
+async def GetMediaProperties():
+    currentSession = await GetCurrentSession()
     if currentSession:
         properties = await currentSession.try_get_media_properties_async()
 
@@ -43,23 +46,19 @@ async def GetMediaProperties():
         return None, "Empty", ""
 
 async def SkipNext():
-    sessions = await MediaManager.request_async()
-    currentSession = sessions.get_current_session()
+    currentSession = await GetCurrentSession()
     if currentSession:
         return await currentSession.try_skip_next_async()
     return False
 
 async def SkipPrevious():
-    sessions = await MediaManager.request_async()
-    currentSession = sessions.get_current_session()
+    currentSession = await GetCurrentSession()
     if currentSession:
         return await currentSession.try_skip_previous_async()
     return False
 
 async def Pause():
-    sessions = await MediaManager.request_async()
-    currentSession = sessions.get_current_session()
-    currentSession.try_g
+    currentSession = await GetCurrentSession()
     if currentSession:
         return await currentSession.try_toggle_play_pause_async()
     return False
@@ -81,3 +80,70 @@ def SetVolume(step=0.05):
     newVol = max(0.0, min(1.0, currentVol + step))
     volume.SetMasterVolumeLevelScalar(newVol, None)
     return newVol
+
+class MediaSessionListener:
+    def __init__(self, on_change):
+        self.onChange = on_change
+        self.manager = None
+        self.currentSession = None
+        self.sessionChanged = None
+        self.propertiesToken = None
+        self.playbackToken = None
+
+    async def Start(self):
+        self.manager = await MediaManager.request_async()
+        self.sessionChanged = self.manager.add_current_session_changed(
+            self.OnCurrentSessionChanged
+        )
+        self.AttachToSession(self.manager.get_current_session())
+
+    def Stop(self):
+        if self.manager is not None and self.sessionChanged is not None:
+            try:
+                self.manager.remove_current_session_changed(self.sessionChanged)
+            except Exception:
+                print("[MediaSessionListener] stop error")
+        self.DetachFromSession()
+        self.manager = None
+
+    def OnCurrentSessionChanged(self, manager, args):
+        self.AttachToSession(manager.get_current_session())
+
+    def AttachToSession(self, session):
+        self.DetachFromSession()
+        self.currentSession = session
+
+        if session is not None:
+            try:
+                self.propertiesToken = session.add_media_properties_changed(
+                    self.OnMediaPropertiesChanged
+                )
+                self.playbackToken = session.add_playback_info_changed(
+                    self.OnPlaybackInfoChanged
+                )
+            except Exception as e:
+                print(f"[MediaSessionListener] attach to session error: {e}")
+
+        self.onChange()
+
+    def DetachFromSession(self):
+        if self.currentSession is not None:
+            try:
+                if self.propertiesToken is not None:
+                    self.currentSession.remove_media_properties_changed(self.propertiesToken)
+                if self.playbackToken is not None:
+                    self.currentSession.remove_playback_info_changed(self.playbackToken)
+            except Exception as e:
+                print(f"[MediaSessionListener] detach from session error: {e}")
+
+        self.currentSession = None
+        self.propertiesToken = None
+        self.playbackToken = None
+
+    def OnMediaPropertiesChanged(self, session, args):
+        print("[MediaSessionListener] change event")
+        self.onChange()
+
+    def OnPlaybackInfoChanged(self, session, args):
+        print("[MediaSessionListener] playback info changed")
+        self.onChange()

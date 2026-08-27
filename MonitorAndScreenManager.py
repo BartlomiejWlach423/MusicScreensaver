@@ -2,16 +2,21 @@ from screeninfo import get_monitors
 from kivy.config import Config
 
 def DetectAndSetupMonitor():
-    width_res = 500
-    height_res = 500
     fps=60
 
-    for monitor in get_monitors():
-        width_res = max(monitor.width, width_res)
-        height_res = max(monitor.height, height_res)
+    monitors = get_monitors()
+    primary = None
 
-    Config.set('graphics', 'width', width_res)
-    Config.set('graphics', 'height', height_res)
+    if monitors:
+        for monitor in monitors:
+            if getattr(monitor, "is_primary", True):
+                primary = monitor
+        Config.set('graphics', 'width', primary.width)
+        Config.set('graphics', 'height', primary.height)
+    else:
+        Config.set('graphics', 'width', 500)
+        Config.set('graphics', 'height', 500)
+
     Config.set('graphics', 'maxfps', fps)
-    Config.set('graphics', 'fullscreen', 'auto')
-    print(f"Screen resolution: {width_res}, {height_res}")
+    #Config.set('graphics', 'fullscreen', 'auto')
+    print(f"Screen resolution: {primary.width}, {primary.height}")
