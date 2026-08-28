@@ -10,15 +10,17 @@ class AlbumCover(Widget):
     keep_ratio = BooleanProperty(False)
     pulse_scale = NumericProperty(1.0)
     pulse_range = NumericProperty(0.08)
-    base_blur_radius = NumericProperty(220)
+    base_blur_radius = NumericProperty(150)
     base_spread = NumericProperty(-8)
     base_alpha = NumericProperty(0.75)
-    pulse_blur_boost = NumericProperty(220)
+    pulse_blur_boost = NumericProperty(200)
     pulse_spread_boost = NumericProperty(40)
     pulse_alpha_boost = NumericProperty(0.25)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+        self.bindedParent = None
 
         self.image = Image(
             source=self.source,
@@ -74,11 +76,18 @@ class AlbumCover(Widget):
         self.bind(parent=self.BindToParent)
 
     def BindToParent(self, _, parent):
+        if self.bindedParent is not None:
+            try:
+                self.bindedParent.unbind(self.FitSquareToParent)
+            except Exception:
+                print("[AlbumCover] parent unbinding error")
+            self.bindedParent = None
+
         if parent:
             parent.bind(size=self.FitSquareToParent)
             self.FitSquareToParent(parent, parent.size)
 
-    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.90):
+    def FitSquareToParent(self, parent, parent_size, margin_ratio=0.7):
         side = min(parent_size) * margin_ratio
         self.size = (side, side)
 

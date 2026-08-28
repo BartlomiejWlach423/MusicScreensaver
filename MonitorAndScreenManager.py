@@ -1,22 +1,19 @@
-from screeninfo import get_monitors
+import ctypes
 from kivy.config import Config
 
 def DetectAndSetupMonitor():
     fps=60
 
-    monitors = get_monitors()
-    primary = None
-
-    if monitors:
-        for monitor in monitors:
-            if getattr(monitor, "is_primary", True):
-                primary = monitor
-        Config.set('graphics', 'width', primary.width)
-        Config.set('graphics', 'height', primary.height)
-    else:
-        Config.set('graphics', 'width', 500)
-        Config.set('graphics', 'height', 500)
-
+    try:
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        width = user32.GetSystemMetrics(0)
+        height = user32.GetSystemMetrics(1)
+    except Exception:
+        width, height = 800, 800
+    
+    Config.set('graphics', 'width', width)    
+    Config.set('graphics', 'height', height)
     Config.set('graphics', 'maxfps', fps)
     #Config.set('graphics', 'fullscreen', 'auto')
-    print(f"Screen resolution: {primary.width}, {primary.height}")
+    print(f"Screen resolution: {width}, {height}")

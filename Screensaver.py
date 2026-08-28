@@ -57,8 +57,8 @@ class MusicScreensaver(App):
         #album cover
         coverAnchor = AnchorLayout(anchor_x='center', anchor_y='center', size_hint=(1.0, 1))
         
-        self.albumCover = AlbumCover(source=ResourcePath("no_cover.jpg"), radius_ratio=0.07, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
-        self.audioMonitor = AudioPulseMonitor(callback=self.OnAudioPulse, bass_cutoff_hz=150)
+        self.albumCover = AlbumCover(source=ResourcePath("no_cover.jpg"), radius_ratio=0.1, size_hint=(None, None), allow_stretch=True, keep_ratio=True)
+        self.audioMonitor = AudioPulseMonitor(callback=self.OnAudioPulse)
         self.audioMonitor.start()
 
         coverAnchor.add_widget(self.albumCover)
@@ -67,7 +67,7 @@ class MusicScreensaver(App):
         #label with title And artist
         titleArtistAnchor = AnchorLayout(anchor_x='center', anchor_y='center', size_hint=(1.0, 0.1))
 
-        self.titleArtistLabel = ShadowLabel(text=self.title, color=(1,1,1,1), bold=True, font_size=sp(60), size_hint=(None, None))
+        self.titleArtistLabel = ShadowLabel(text=self.title, color=(1,1,1,1), bold=True, font_size=sp(45), size_hint=(None, None))
 
         titleArtistAnchor.add_widget(self.titleArtistLabel)
         verticalBox.add_widget(titleArtistAnchor)
@@ -76,7 +76,7 @@ class MusicScreensaver(App):
         GetLoop().Run(self.mediaSessionListener.Start())
 
         #in case of MediaSessionListener fail
-        Clock.schedule_interval(self.TriggerMetadataUpdate, 5.0)
+        Clock.schedule_interval(self.TriggerMetadataUpdate, 10.0)
         Clock.schedule_interval(self.Animate, 1/60)
 
         root.add_widget(verticalBox)
@@ -107,12 +107,18 @@ class MusicScreensaver(App):
         self.updatingMetadata = True
         try:
             thumbnailPath, title, rawArtist = await GetMediaProperties()
-            artist, _, _ = rawArtist.partition(' — ')
+            noSession = title is None
+
+            if noSession:
+                title = ""
+                artist = ""
+            else:
+                artist, _, _ = rawArtist.partition(' — ')
 
             if thumbnailPath == self.lastThumbPath and title == self.title and artist == self.artist:
                 return
 
-            self.ApplyMetadata(thumbnailPath, title, artist)
+            self.ApplyMetadata(thumbnailPath, title, artist, no_session=noSession)
         finally:
             self.updatingMetadata = False
 

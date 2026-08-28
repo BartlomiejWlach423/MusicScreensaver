@@ -1,20 +1,41 @@
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate, Scale
+from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate, RenderContext
 from kivy.core.image import Image as CoreImage
 
 import math
 
 from GradientBlur import GradientBlur
-from Utils import ResourcePath
+
+DITHER_FS = '''
+$HEADER$
+uniform float time_seed;
+
+float hash(vec2 p){
+    p = fract(p * vec2(443.8975, 441.423));
+    p += dot(p, p.xy + 19.19);
+    return fract((p.x + p.y) * p.x);
+}
+
+void main(void){
+    vec4 tex_color = texture2D(texture0, tex_coord0);
+    float noise = hash(gl_FragCoord.xy + time_seed);
+    float dither = (noise - 0.5) * (5.0 / 255.0);
+    gl_FragColor = frag_color * tex_color + vec4(dither, dither, dither, 0.0);
+}
+'''
 
 class BlurredBackground(Widget):
     def __init__(self, blur_start_size=128, blur_steps=4, **kwargs):
         super().__init__(**kwargs)
 
+        self.canvas = RenderContext(use_parent_projection=True, use_parent_modelview=True)
+        self.canvas.shader.fs = DITHER_FS
+        self.canvas['time_seed'] = 0.0
+
         self.elapsed_time = 0
         self.gradient_blur = GradientBlur(start_size=blur_start_size, steps=blur_steps)
 
-        with self.canvas.before:
+        with self.canvas:
             self.bg_color = Color(1,1,1,0.7)
             PushMatrix()
             self.bg_rotation = Rotate(angle=0, origin=self.center)
@@ -26,6 +47,7 @@ class BlurredBackground(Widget):
     def Animate(self, dt, pulse_scale=1.0):
         self.elapsed_time += dt/40
         self.bg_rotation.angle = math.sin(self.elapsed_time)*360
+        self.canvas['time_seed'] = (self.elapsed_time * 1000.0) % 300.0
         self.UpdateBackgroundPulse(pulse_scale)
 
     def UpdateBackgroundPulse(self, pulse_scale):

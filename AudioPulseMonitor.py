@@ -1,19 +1,18 @@
 import threading
 import numpy as np
 import pyaudiowpatch as pyaudio
-from scipy.signal import butter, lfilter, lfilter_zi
 import math
 
 class AudioPulseMonitor:
-    def __init__(self, callback, sample_rate_hz=25, baseline_decay=0.9, sensitivity=1.0, max_boost=0.2, bass_cutoff_hz=150):
+    def __init__(self, callback, sampleRateHz=25, baselineDecay=0.1, sensitivity=5.0, maxBoost=0.2, bassCutoffHz=150):
         self.callback = callback
-        self.sample_rate_hz = sample_rate_hz
-        self.baseline_decay = baseline_decay
+        self.sampleRateHz = sampleRateHz
+        self.baselineDecay = baselineDecay
         self.sensitivity = sensitivity
-        self.max_boost = max_boost
-        self.bass_cutoff_hz = bass_cutoff_hz
+        self.maxBoost = maxBoost
+        self.bassCutoffHz = bassCutoffHz
         self.running = False
-        self._baseline = 0.0
+        self.baseline = 0.0
 
     def start(self):
         self.running = True
@@ -41,15 +40,18 @@ class AudioPulseMonitor:
 
             rate = int(device["defaultSampleRate"])
             channels = device["maxInputChannels"]
-            chunk = max(int(rate / self.sample_rate_hz), 1)
-            chunk_duration = chunk / rate
+            chunk = max(int(rate / self.sampleRateHz), 1)
+            chunkDuration = chunk / rate
 
             #bass filter
-            nyquist = rate / 2
-            b, a = butter(N=4, Wn=self.bass_cutoff_hz / nyquist, btype='low')
-            zi = lfilter_zi(b, a) * 0.0
-
-            baseline_alpha = 1.0 - math.exp(-chunk_duration / self.baseline_decay)
+            #nyquist = rate / 2
+            alpha = 1.0 - math.exp(-2 * math.pi * self.bassCutoffHz / rate)
+            stateFirst = 0.0
+            stateSecond = 0.0
+            stateThird = 0.0
+            stateFourth = 0.0
+            
+            baselineAlpha = 1.0 - math.exp(-chunkDuration / self.baselineDecay)
 
             stream = p.open(
                 format=pyaudio.paFloat32,
@@ -67,13 +69,19 @@ class AudioPulseMonitor:
                 if channels > 1:
                     samples = samples.reshape(-1, channels).mean(axis=1)
 
-                filtered, zi = lfilter(b, a, samples, zi=zi)
+                filtered = np.empty_like(samples)
+                for i in range(len(samples)):
+                    stateFirst += alpha * (samples[i] - stateFirst)
+                    stateSecond += alpha * (stateFirst - stateSecond)
+                    stateThird += alpha * (stateSecond - stateThird)
+                    stateFourth += alpha * (stateThird - stateFourth)
+                    filtered[i] = stateFourth
 
                 rms = float(np.sqrt(np.mean(filtered ** 2))) if len(filtered) else 0.0
 
-                self._baseline += (rms - self._baseline) * baseline_alpha
-                excess = max(rms - self._baseline, 0.0)
-                pulse = 1.0 + min(excess * self.sensitivity, self.max_boost)
+                self.baseline += (rms - self.baseline) * baselineAlpha
+                excess = max(rms - self.baseline, 0.0)
+                pulse = 1.0 + min(excess * self.sensitivity, self.maxBoost)
 
                 self.callback(pulse)
 

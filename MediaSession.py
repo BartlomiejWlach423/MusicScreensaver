@@ -43,7 +43,7 @@ async def GetMediaProperties():
         return savedPath, properties.title, properties.artist
     else:
         print("No session")
-        return None, "Empty", ""
+        return None, None, None
 
 async def SkipNext():
     currentSession = await GetCurrentSession()
